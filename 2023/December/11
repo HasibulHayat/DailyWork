@@ -1,0 +1,159 @@
+-- Task: Write a PostgreSQL function to Calculate the Monthly Sales Growth
+
+CREATE TABLE sales (
+    sale_id SERIAL PRIMARY KEY,
+    product_id INT,
+    amount DECIMAL(10, 2),
+    sale_date DATE
+);
+
+INSERT INTO sales (product_id, amount, sale_date) 
+VALUES
+(1, 1000, '2023-01-15'), 
+(1, 1200, '2023-02-20'), 
+(1, 1150, '2023-03-10'), 
+(1, 1400, '2023-04-25'), 
+(1, 1400, '2023-05-05'); 
+
+SELECT TO_CHAR(sale_date, 'Month') AS month,
+       SUM(amount) AS total_sales_amount,
+	   CASE
+            WHEN LAG(SUM(amount)) OVER (ORDER BY DATE_TRUNC('month', sale_date)) IS NULL THEN NULL
+            ELSE ROUND(((SUM(amount) - LAG(SUM(amount)) OVER (ORDER BY DATE_TRUNC('month', sale_date))) / 
+						 LAG(SUM(amount)) OVER (ORDER BY DATE_TRUNC('month', sale_date))) * 100, 2)
+        END AS growth_percentage
+FROM sales
+GROUP BY month, sale_date
+ORDER BY sale_date;
+
+
+
+CREATE OR REPLACE FUNCTION monthly_sales_growth (product_id INT)
+RETURNS TABLE (month TEXT, total_sales_amount NUMERIC, growth_percentage NUMERIC) AS $$
+BEGIN
+    RETURN QUERY
+		SELECT TO_CHAR(sale_date, 'Month') AS month,
+			   SUM(amount) AS total_sales_amount,
+			   CASE
+				   WHEN LAG(SUM(amount)) OVER (ORDER BY DATE_TRUNC('month', sale_date)) IS NULL THEN NULL
+				   ELSE ROUND(((SUM(amount) - LAG(SUM(amount)) OVER (ORDER BY DATE_TRUNC('month', sale_date))) / 
+								LAG(SUM(amount)) OVER (ORDER BY DATE_TRUNC('month', sale_date))) * 100, 2)
+			   END AS growth_percentage
+		  FROM sales
+		 WHERE sales.product_id = monthly_sales_growth.product_id
+	  GROUP BY month, sale_date
+	  ORDER BY sale_date;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT * FROM monthly_sales_growth (1);
+
+
+
+
+
+-- Task: Write a PostgreSQL Function to Determine Top Selling Products by Category
+
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    product_name VARCHAR(255),
+    category_id INT
+);
+
+CREATE TABLE sales (
+    sale_id SERIAL PRIMARY KEY,
+    product_id INT,
+    amount DECIMAL(10, 2),
+    sale_date DATE,
+    FOREIGN KEY (product_id) REFERENCES products (product_id)
+);
+
+INSERT INTO products (product_name, category_id) 
+VALUES
+('Product A', 1),
+('Product B', 1),
+('Product C', 2),
+('Product D', 2),
+('Product E', 3);
+
+INSERT INTO sales (product_id, amount, sale_date) 
+VALUES
+(1, 500, '2023-06-01'),
+(1, 300, '2023-06-02'),
+(2, 400, '2023-06-03'),
+(3, 800, '2023-06-04'),
+(4, 200, '2023-06-05'),
+(4, 600, '2023-06-06'),
+(5, 700, '2023-06-07');
+
+SELECT * FROM products;
+
+SELECT * FROM sales;
+
+
+WITH new AS (
+SELECT a.product_id, a.product_name, a.category_id, b.amount,
+       ROW_NUMBER() OVER(PARTITION BY a.category_id ORDER BY b.amount DESC) AS row
+FROM products a
+LEFT JOIN sales b
+ON a.product_id = b.product_id)
+
+SELECT * FROM new WHERE row <= 2;
+
+
+drop function top_selling_products;
+CREATE OR REPLACE FUNCTION top_selling_products (num INT)
+RETURNS TABLE (product_id INT, product_name VARCHAR(255), category_id INT, amount NUMERIC, row_num BIGINT) AS $$
+BEGIN
+    RETURN QUERY
+		WITH new AS (
+			SELECT a.product_id, a.product_name, a.category_id, b.amount,
+				   ROW_NUMBER() OVER(PARTITION BY a.category_id ORDER BY b.amount DESC) AS row
+			  FROM products a
+		 LEFT JOIN sales b
+			    ON a.product_id = b.product_id)
+
+			SELECT * FROM new WHERE row <= num;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT * FROM top_selling_products(2);
+
+
+
+
+
+-- Task: Write a SQL function in PostgreSQL that retrieves all users whose preferences include a specific interest.
+
+CREATE TABLE user_profiles (
+    id SERIAL PRIMARY KEY,
+    profile_data JSONB
+);
+
+INSERT INTO user_profiles (profile_data) VALUES
+('{"name": "John Doe", "age": 30, "preferences": {"interests": ["Python programming", "Data Science", "Gaming"]}}'),
+('{"name": "Jane Smith", "age": 25, "preferences": {"interests": ["Web Development", "Photography"]}}'),
+('{"name": "Alice Johnson", "age": 28, "preferences": {"interests": ["Python programming", "Machine Learning", "Cycling"]}}'),
+('{"name": "Bob Brown", "age": 35, "preferences": {"interests": ["Cooking", "Travel", "Python programming"]}}');
+
+SELECT * FROM user_profiles;
+DROP FUNCTION get_users_with_interest;
+CREATE OR REPLACE FUNCTION get_users_with_interest(interest varchar)
+RETURNS TABLE(id INT, name TEXT) AS $$
+BEGIN
+  RETURN QUERY 
+  SELECT 
+    user_profiles.id, 
+    profile_data ->> 'name' as name
+  FROM 
+    user_profiles
+  WHERE 
+    profile_data -> 'preferences' -> 'interests' ? interest;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT * FROM get_users_with_interest('Python programming');
+
+
+
+
